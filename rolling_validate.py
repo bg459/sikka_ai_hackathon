@@ -11,10 +11,17 @@ supports both individual and ensembling model ideas.
 pth = 'data_file.csv'
 import pandas as pd
 df = pd.read_csv(pth)
+
 import matplotlib.pyplot as plt
 import numpy as np
+
 import statsmodels.api as sm
 
+import json
+
+from tqdm import tqdm
+import warnings
+warnings.filterwarnings('ignore')
 
 df['date'] = df['month'].astype(str) + '-' + df['year'].astype(str)
 def rolling_validate(id, order, exog = False):
@@ -23,7 +30,8 @@ def rolling_validate(id, order, exog = False):
     At each step, trains on all prev. data and predicts on Jan-Apr. Computes net MAP score as outlined in competition
     rules.
     """
-    total_score = 0
+    # total_score = 0
+    total_scores_list = [0 for i in range(len(orders))]
     temp = df[df['id'] == id]
     januaries = temp[temp['month'] == 1]
     if len (januaries) <= 3:
@@ -61,44 +69,81 @@ def rolling_validate(id, order, exog = False):
         models = []
         
         try:
-            for o in order:
-                model = sm.tsa.statespace.SARIMAX(order = o, endog = train_X,\
-                                          exog = None).fit(disp = -1)
-                models.append(model)
+            for ol in order:
+                curr_models = []
+                for o in ol: 
+                    model = sm.tsa.statespace.SARIMAX(order = o, endog = train_X,\
+                                            exog = None).fit(disp = -1)
+                    curr_models.append(model)
+                models.append(curr_models)
         except:
             return -2
 
         y_hats = []
-        for model in models:
-            y_hat = model.predict(0, len(train_X) + 5)[1:]
-            y_hats.append(y_hat)
+            
+        for model_list in models:
+            y_hat_curr = []
+            
+            for model in model_list:
+                y_hat = list(model.predict(0, len(train_X) + 5)[1:])
+                y_hat_curr.append(y_hat)
+            
+            # average yhat values
+            y_hats.append([sum(x)/len(x) for x in zip(*y_hat_curr)])
+        
+        scores = []
+        if len(months) > 1:
+            # calculate scores for each model
+            for ind in range(len(y_hats)):
+                y_hat = y_hats[ind]
 
-        y_hat = sum(y_hats)/len(y_hats)
-        y_hat = list(y_hat)
+                forecast = np.array(y_hat[-4:])
+                forecast = forecast[[x-1 for x in months]]
+            
+                mape_arima = mean_absolute_percentage_error(y, forecast)
+            
+                score_arima = 2 if mape_arima <= 5 else 1 if mape_arima <= 10 else -1 if mape_arima <= 15 else -2
+                scores.append(score_arima)
+            
+            # combine scores with prev years to get total
+            total_scores_list = [x + y for x, y in zip(scores, total_scores_list)]
+            i+=1
 
-        # Assert: y_hat same shape as y, some list
-
-        forecast = np.array(y_hat[-4:])
-        forecast = forecast[[x-1 for x in months]]
-        mape = mean_absolute_percentage_error(y, forecast)
-        score = 2 if mape <= 5 else 1 if mape <= 10 else -1 if mape <= 15 else -2
-        total_score += score
-
-        i+=1
         start_year += 1
 
-    return total_score/i
+    # find order with max score
+    max_score  = -1000
+    order_curr = 0
+    for ind in range(len(total_scores_list)):
+        if max_score < total_scores_list[ind]:
+            max_score = total_scores_list[ind]
+            order_curr = orders[ind]
+    
+    if i == 0:
+        return -2, order_curr
 
-import warnings
-warnings.filterwarnings('ignore')
-
-s = 0
-
+    return max_score/i, order_curr
 
 ## EXAMPLE RUN: Can change contents of "orders" to test different model(s).
 
-orders = [(1, 0, 1), (0, 1, 2), (0, 1, 1), (1, 1, 1), (1, 0, 2), (1, 0, 3)]
-for id in range(1, 285):
-    s+=rolling_validate(id, orders)
+# orders = [(1, 0, 1), (0, 1, 2), (0, 1, 1), (1, 1, 1), (1, 0, 2), (1, 0, 3)]
+orders_init = [(1, 0, 1), (1, 0, 2), (0, 1, 2), (0, 1, 1), (1, 1, 1), (1, 1, 2), (3, 1, 1), (2, 1, 1), (4, 1, 0), (3, 1, 0)]
+
+# make each order a list of orders for model ensembling 
+orders = []
+for a in orders_init:
+    for b in orders_init:
+        orders.append([a, b])
+
+id2order = {}
+s = 0
+for id in tqdm(range(1, 285)):
+    curr, order = rolling_validate(id, orders)
+    id2order[id] = order
+    print(id, curr, order)
+    s += curr
 
 print(s)
+with open('arima_orders.json', 'w') as f:
+    json.dump(id2order, f)
+

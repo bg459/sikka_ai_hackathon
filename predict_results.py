@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import statsmodels.api as sm
 import warnings
+import json
 
 warnings.filterwarnings('ignore')
 
@@ -15,7 +16,9 @@ covid_months = ['3-2020', '4-2020', '5-2020', '6-2020']
 df = df[~df['date'].isin(covid_months)]
 
 # this is the set of arima models we decided on
-orders = [(1, 0, 1), (1, 0, 2)]
+io = open('arima_orders.json','r')
+order_dict = json.load(io)
+
 # These id's end in november instead of december
 issue_ids = [262, 252, 66]
 
@@ -28,6 +31,7 @@ for id in range(1, 285):
     train_data = temp['production']
 
     models = []
+    orders = order_dict[str(id)]
     for o in orders:
         model = sm.tsa.statespace.SARIMAX(order = o, endog = train_data,\
                                           exog = None).fit(disp = -1)
