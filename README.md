@@ -1,5 +1,7 @@
 # sikka_ai_hackathon
 
+The code in this directory relies on the data file (data_file.csv) to run successfully. The data has not been included for data sharing reasons. Simply move the data_file.csv data into the home directory of this repository to run the scripts.
+
 ## result.csv
 
 Our predictions
